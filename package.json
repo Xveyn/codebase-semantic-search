@@ -1,0 +1,37 @@
+{
+  "name": "codebase-semantic-search",
+  "version": "0.1.0",
+  "description": "MCP Server for vector-based semantic code search in Claude Code. Index your codebase locally with LanceDB and search code, files, and symbols using natural language.",
+  "keywords": ["mcp", "claude-code", "semantic-search", "vector-database", "lancedb", "embeddings", "code-search"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xveyn/codebase-semantic-search"
+  },
+  "type": "module",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@huggingface/transformers": "^3.4.1",
+    "@lancedb/lancedb": "^0.15.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "apache-arrow": "^18.1.0",
+    "chokidar": "^4.0.3",
+    "glob": "^11.0.1",
+    "simple-git": "^3.27.0",
+    "web-tree-sitter": "^0.24.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}

@@ -1,0 +1,57 @@
+import type { IndexUpdateInput } from "./schemas.js";
+import { loadProjectConfig } from "../config/loader.js";
+import { createEmbeddingProvider } from "../embedding/factory.js";
+import { ASTChunker } from "../chunking/ast-chunker.js";
+import { VectorDB } from "../db/connection.js";
+import { Indexer } from "../indexing/indexer.js";
+import { normalizeProjectPath } from "../utils/paths.js";
+import { logger } from "../utils/logger.js";
+
+export async function handleIndexUpdate(input: IndexUpdateInput): Promise<string> {
+  const projectPath = normalizeProjectPath(input.projectPath);
+
+  try {
+    const config = await loadProjectConfig(projectPath);
+
+    // Load existing metadata to match provider
+    const tempDb = new VectorDB(projectPath, 0);
+    await tempDb.connect();
+    const metadata = await tempDb.loadMetadata();
+    await tempDb.close();
+
+    if (!metadata) {
+      return "No index found. Run 'init' first to create the vector index.";
+    }
+
+    config.embedding.provider = metadata.embeddingProvider as any;
+    config.embedding.model = metadata.embeddingModel;
+    const embedder = await createEmbeddingProvider(config.embedding);
+
+    const chunker = new ASTChunker(config.chunking.maxChunkLines, config.chunking.overlapLines);
+
+    const db = new VectorDB(projectPath, embedder.dimensions);
+    await db.connect();
+
+    const indexer = new Indexer(projectPath, db, embedder, chunker, config);
+    const result = await indexer.incrementalUpdate();
+
+    await db.close();
+
+    if (result.filesAdded === 0 && result.filesModified === 0 && result.filesDeleted === 0) {
+      return "Index is up to date. No changes detected.";
+    }
+
+    return [
+      `Incremental update complete for: ${projectPath}`,
+      ``,
+      `Files added:    ${result.filesAdded}`,
+      `Files modified: ${result.filesModified}`,
+      `Files deleted:  ${result.filesDeleted}`,
+      `Chunks created: ${result.chunksCreated}`,
+      `Duration: ${(result.duration / 1000).toFixed(1)}s`,
+    ].join("\n");
+  } catch (error) {
+    logger.error("index_update failed", { error: String(error) });
+    return `Error during incremental update: ${error}`;
+  }
+}

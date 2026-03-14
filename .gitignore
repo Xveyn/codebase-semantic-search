@@ -1,0 +1,9 @@
+node_modules/
+build/
+*.js.map
+*.d.ts
+!src/**/*.d.ts
+.env
+*.log
+.vectordb/
+*.tsbuildinfo
