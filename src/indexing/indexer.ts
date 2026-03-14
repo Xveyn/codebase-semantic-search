@@ -1,5 +1,5 @@
 import { VectorDB } from "../db/connection.js";
-import { addChunks, addFiles, deleteByFilePaths, countRows } from "../db/operations.js";
+import { addChunks, addFiles, deleteByFilePaths, countRows, searchChunks } from "../db/operations.js";
 import type { ChunkRecord, FileRecord, ProjectMetadata } from "../db/schema.js";
 import type { EmbeddingProvider } from "../embedding/provider.js";
 import type { Chunker } from "../chunking/chunker.js";
@@ -9,6 +9,8 @@ import { detectChanges } from "./change-detector.js";
 import { processFile } from "./pipeline.js";
 import { promisePool } from "../utils/concurrency.js";
 import { normalizeProjectPath } from "../utils/paths.js";
+import { hashString } from "../utils/hash.js";
+import { escapeSqlString } from "../utils/sanitize.js";
 import { logger } from "../utils/logger.js";
 
 export interface IndexResult {
@@ -156,6 +158,19 @@ export class Indexer {
     const chunksTable = await this.db.getOrCreateChunksTable();
     const filesTable = await this.db.getOrCreateFilesTable();
 
+    // Re-index added/modified files
+    const toIndex = changes
+      .filter((c) => c.status === "added" || c.status === "modified")
+      .map((c) => c.filePath);
+
+    // For modified files, load existing chunk vectors BEFORE deletion so we can reuse unchanged ones
+    const modifiedFiles = new Set(
+      changes.filter((c) => c.status === "modified").map((c) => c.filePath)
+    );
+    const existingChunkData = modifiedFiles.size > 0
+      ? await this.getExistingChunkData(chunksTable, modifiedFiles)
+      : new Map<string, Map<string, { summaryHash: string; vector: number[] }>>();
+
     // Delete removed/modified files from DB
     const toDelete = changes
       .filter((c) => c.status === "deleted" || c.status === "modified")
@@ -166,20 +181,17 @@ export class Indexer {
       await deleteByFilePaths(filesTable, toDelete);
     }
 
-    // Re-index added/modified files
-    const toIndex = changes
-      .filter((c) => c.status === "added" || c.status === "modified")
-      .map((c) => c.filePath);
-
     const allChunks: ChunkRecord[] = [];
     const allFiles: FileRecord[] = [];
 
     for (const filePath of toIndex) {
+      const chunkCache = existingChunkData.get(filePath);
       const result = await processFile(
         this.projectPath,
         filePath,
         this.chunker,
-        this.embedder
+        this.embedder,
+        chunkCache
       );
       if (result) {
         allChunks.push(...result.chunks);
@@ -212,6 +224,39 @@ export class Indexer {
       chunksCreated: allChunks.length,
       duration,
     };
+  }
+
+  private async getExistingChunkData(
+    chunksTable: any,
+    modifiedFiles: Set<string>
+  ): Promise<Map<string, Map<string, { summaryHash: string; vector: number[] }>>> {
+    const result = new Map<string, Map<string, { summaryHash: string; vector: number[] }>>();
+
+    try {
+      for (const filePath of modifiedFiles) {
+        const rows = await chunksTable
+          .search(new Array(this.embedder.dimensions).fill(0))
+          .where(`"filePath" = '${escapeSqlString(filePath)}' AND id != '__placeholder__'`)
+          .limit(10000)
+          .toArray();
+
+        if (rows.length > 0) {
+          const chunkMap = new Map<string, { summaryHash: string; vector: number[] }>();
+          for (const row of rows) {
+            chunkMap.set(row.id, {
+              summaryHash: hashString(row.summary || ""),
+              vector: row.vector,
+            });
+          }
+          result.set(filePath, chunkMap);
+          logger.debug(`Loaded ${chunkMap.size} existing chunks for ${filePath}`);
+        }
+      }
+    } catch (error) {
+      logger.debug("Could not load existing chunk data", { error: String(error) });
+    }
+
+    return result;
   }
 
   private async getExistingFileHashes(): Promise<Map<string, string>> {

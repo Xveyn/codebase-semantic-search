@@ -1,5 +1,6 @@
 import type { Table } from "@lancedb/lancedb";
 import type { ChunkRecord, FileRecord } from "./schema.js";
+import { escapeSqlString } from "../utils/sanitize.js";
 import { logger } from "../utils/logger.js";
 
 export interface SearchResult {
@@ -71,7 +72,7 @@ export async function searchFiles(
 }
 
 export async function deleteByFilePath(table: Table, filePath: string): Promise<void> {
-  await table.delete(`"filePath" = '${filePath.replace(/'/g, "''")}'`);
+  await table.delete(`"filePath" = '${escapeSqlString(filePath)}'`);
 }
 
 export async function deleteByFilePaths(table: Table, filePaths: string[]): Promise<void> {

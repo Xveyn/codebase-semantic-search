@@ -58,11 +58,27 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {
-    // transformers.js processes one at a time efficiently enough for our needs
-    const results: number[][] = [];
-    for (const text of texts) {
-      results.push(await this.embed(text));
+    if (!extractor) throw new Error("Transformers provider not initialized");
+    if (texts.length === 0) return [];
+    if (texts.length === 1) return [await this.embed(texts[0])];
+
+    // Process in mini-batches to avoid OOM on large inputs
+    const batchSize = 32;
+    const allResults: number[][] = [];
+
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
+      const result = await extractor(batch, { pooling: "mean", normalize: true });
+
+      // Result tensor shape: [batch_size, dimensions]
+      const data = result.data as Float32Array;
+      const dims = this._dimensions;
+
+      for (let j = 0; j < batch.length; j++) {
+        allResults.push(Array.from(data.slice(j * dims, (j + 1) * dims)));
+      }
     }
-    return results;
+
+    return allResults;
   }
 }

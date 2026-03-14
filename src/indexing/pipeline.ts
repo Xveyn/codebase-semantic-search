@@ -4,7 +4,7 @@ import type { EmbeddingProvider } from "../embedding/provider.js";
 import type { Chunker, CodeChunk } from "../chunking/chunker.js";
 import type { ChunkRecord, FileRecord } from "../db/schema.js";
 import { getLanguageForFile } from "../chunking/languages.js";
-import { hashFile } from "../utils/hash.js";
+import { hashFile, hashString } from "../utils/hash.js";
 import { logger } from "../utils/logger.js";
 
 export interface PipelineResult {
@@ -12,11 +12,18 @@ export interface PipelineResult {
   fileRecord: FileRecord;
 }
 
+/**
+ * Process a file: chunk -> embed -> build records.
+ * @param existingChunkHashes - Optional map of chunkId -> summaryHash for skipping unchanged chunks.
+ *   When provided, chunks whose summary hash matches will reuse the existing vector (set to null),
+ *   and only new/changed chunks will be embedded.
+ */
 export async function processFile(
   projectPath: string,
   filePath: string,
   chunker: Chunker,
-  embedder: EmbeddingProvider
+  embedder: EmbeddingProvider,
+  existingChunkHashes?: Map<string, { summaryHash: string; vector: number[] }>
 ): Promise<PipelineResult | null> {
   const fullPath = join(projectPath, filePath);
 
@@ -29,13 +36,19 @@ export async function processFile(
     const codeChunks = await chunker.chunk(filePath, content, language);
     if (codeChunks.length === 0) return null;
 
-    // Generate embeddings for all chunks in batch
-    const summaries = codeChunks.map((c) => c.summary);
-    const vectors = await embedder.embedBatch(summaries);
-
-    // Get file hash
     const fileHash = await hashFile(fullPath);
     const now = new Date().toISOString();
+
+    let vectors: number[][];
+
+    if (existingChunkHashes && existingChunkHashes.size > 0) {
+      // Smart embedding: only embed chunks whose summary changed
+      vectors = await embedWithChunkCache(codeChunks, embedder, existingChunkHashes);
+    } else {
+      // Full embedding: embed all chunks
+      const summaries = codeChunks.map((c) => c.summary);
+      vectors = await embedder.embedBatch(summaries);
+    }
 
     // Build chunk records
     const chunks: ChunkRecord[] = codeChunks.map((chunk, i) => ({
@@ -73,6 +86,49 @@ export async function processFile(
     logger.warn(`Failed to process file: ${filePath}`, { error: String(error) });
     return null;
   }
+}
+
+/**
+ * Embed chunks, reusing vectors for chunks whose summary hasn't changed.
+ */
+async function embedWithChunkCache(
+  codeChunks: CodeChunk[],
+  embedder: EmbeddingProvider,
+  existingChunkHashes: Map<string, { summaryHash: string; vector: number[] }>
+): Promise<number[][]> {
+  const vectors: number[][] = new Array(codeChunks.length);
+  const toEmbedIndices: number[] = [];
+  const toEmbedTexts: string[] = [];
+  let reused = 0;
+
+  for (let i = 0; i < codeChunks.length; i++) {
+    const chunk = codeChunks[i];
+    const currentSummaryHash = hashString(chunk.summary);
+    const existing = existingChunkHashes.get(chunk.id);
+
+    if (existing && existing.summaryHash === currentSummaryHash) {
+      // Chunk content unchanged — reuse existing vector
+      vectors[i] = existing.vector;
+      reused++;
+    } else {
+      // New or changed chunk — needs embedding
+      toEmbedIndices.push(i);
+      toEmbedTexts.push(chunk.summary);
+    }
+  }
+
+  if (toEmbedTexts.length > 0) {
+    const newVectors = await embedder.embedBatch(toEmbedTexts);
+    for (let j = 0; j < toEmbedIndices.length; j++) {
+      vectors[toEmbedIndices[j]] = newVectors[j];
+    }
+  }
+
+  if (reused > 0) {
+    logger.debug(`Reused ${reused}/${codeChunks.length} chunk vectors`);
+  }
+
+  return vectors;
 }
 
 function averageVectors(vectors: number[][]): number[] {
