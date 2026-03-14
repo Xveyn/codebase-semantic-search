@@ -4,6 +4,7 @@ import { createEmbeddingProvider } from "../embedding/factory.js";
 import { ASTChunker } from "../chunking/ast-chunker.js";
 import { VectorDB } from "../db/connection.js";
 import { Indexer } from "../indexing/indexer.js";
+import { invalidateProjectContext } from "../context.js";
 import { normalizeProjectPath } from "../utils/paths.js";
 import { logger } from "../utils/logger.js";
 
@@ -11,6 +12,8 @@ export async function handleReindex(input: ReindexInput): Promise<string> {
   const projectPath = normalizeProjectPath(input.projectPath);
 
   try {
+    await invalidateProjectContext(projectPath);
+
     const config = await loadProjectConfig(projectPath);
     const embedder = await createEmbeddingProvider(config.embedding);
     const chunker = new ASTChunker(config.chunking.maxChunkLines, config.chunking.overlapLines);

@@ -53,16 +53,15 @@ export class SearchEngine {
     const queryVector = await this.embedder.embed(query);
     const table = await this.db.getOrCreateChunksTable();
 
-    // Build filter
+    // Build filter (LanceDB requires quoted camelCase column names)
     let filter: string | undefined;
     const conditions: string[] = [];
     if (language) {
       conditions.push(`language = '${language}'`);
     }
     if (filePattern) {
-      conditions.push(`filePath LIKE '${filePattern.replace(/\*/g, "%")}'`);
+      conditions.push(`"filePath" LIKE '${filePattern.replace(/\*/g, "%")}'`);
     }
-    // Always exclude placeholder
     conditions.push(`id != '__placeholder__'`);
     filter = conditions.join(" AND ");
 
@@ -111,11 +110,11 @@ export class SearchEngine {
     const queryVector = await this.embedder.embed(query);
     const table = await this.db.getOrCreateChunksTable();
 
-    // Filter for records that have symbol names
-    const conditions: string[] = [`symbolName != ''`, `id != '__placeholder__'`];
+    // Filter for records that have symbol names (LanceDB requires quoted camelCase columns)
+    const conditions: string[] = [`"symbolName" != ''`, `id != '__placeholder__'`];
     if (symbolTypes && symbolTypes.length > 0) {
       const typeList = symbolTypes.map((t) => `'${t}'`).join(", ");
-      conditions.push(`symbolType IN (${typeList})`);
+      conditions.push(`"symbolType" IN (${typeList})`);
     }
     const filter = conditions.join(" AND ");
 

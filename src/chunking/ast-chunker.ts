@@ -3,6 +3,8 @@ import { hashString } from "../utils/hash.js";
 import { LineChunker } from "./line-chunker.js";
 import { getLanguageForFile } from "./languages.js";
 import { logger } from "../utils/logger.js";
+import { resolve, join } from "path";
+import { fileURLToPath } from "url";
 
 // Tree-sitter node types that represent top-level symbols
 const SYMBOL_NODE_TYPES: Record<string, SymbolType> = {
@@ -21,6 +23,7 @@ const SYMBOL_NODE_TYPES: Record<string, SymbolType> = {
   // Python
   function_definition: "function",
   class_definition: "class",
+  decorated_definition: "function",
   // Rust
   function_item: "function",
   impl_item: "class",
@@ -35,10 +38,32 @@ const SYMBOL_NODE_TYPES: Record<string, SymbolType> = {
   // Java / C#
   method_declaration_java: "method",
   constructor_declaration: "method",
+  // General
+  program: "other",
 };
 
 let Parser: any = null;
+let parserInstance: any = null;
 const loadedLanguages = new Map<string, any>();
+let wasmDir: string | null = null;
+
+function findWasmDir(): string {
+  // Look for tree-sitter-wasms/out directory
+  // Works regardless of where the server is invoked from
+  try {
+    const wasmPkg = require.resolve("tree-sitter-wasms/package.json");
+    return join(wasmPkg, "..", "out");
+  } catch {
+    // Fallback: resolve relative to this file's location
+    // In ESM, use import.meta.url
+    try {
+      const thisDir = fileURLToPath(new URL(".", import.meta.url));
+      return resolve(thisDir, "../../node_modules/tree-sitter-wasms/out");
+    } catch {
+      return resolve("node_modules/tree-sitter-wasms/out");
+    }
+  }
+}
 
 async function initTreeSitter(): Promise<boolean> {
   if (Parser) return true;
@@ -47,6 +72,9 @@ async function initTreeSitter(): Promise<boolean> {
     const TreeSitter = await import("web-tree-sitter");
     await TreeSitter.default.init();
     Parser = TreeSitter.default;
+    parserInstance = new Parser();
+    wasmDir = findWasmDir();
+    logger.info("Tree-sitter initialized", { wasmDir });
     return true;
   } catch (error) {
     logger.warn("Failed to initialize tree-sitter, will use line-based chunking", {
@@ -61,16 +89,23 @@ async function loadLanguage(grammarName: string): Promise<any | null> {
     return loadedLanguages.get(grammarName);
   }
 
+  if (!wasmDir) {
+    loadedLanguages.set(grammarName, null);
+    return null;
+  }
+
+  const wasmPath = join(wasmDir, `tree-sitter-${grammarName}.wasm`);
+
   try {
-    // Try to load from node_modules tree-sitter grammars
-    // In production, WASM files would be bundled or downloaded
-    const lang = await Parser.Language.load(
-      `node_modules/tree-sitter-${grammarName}/tree-sitter-${grammarName}.wasm`
-    );
+    const lang = await Parser.Language.load(wasmPath);
     loadedLanguages.set(grammarName, lang);
+    logger.info(`Loaded tree-sitter grammar: ${grammarName}`);
     return lang;
-  } catch {
-    logger.debug(`Tree-sitter grammar not available for ${grammarName}`);
+  } catch (error) {
+    logger.debug(`Tree-sitter grammar not available: ${grammarName}`, {
+      path: wasmPath,
+      error: String(error),
+    });
     loadedLanguages.set(grammarName, null);
     return null;
   }
@@ -102,12 +137,11 @@ export class ASTChunker implements Chunker {
     }
 
     try {
-      const parser = new Parser();
-      parser.setLanguage(lang);
-      const tree = parser.parse(content);
+      // Reuse the singleton parser instance
+      parserInstance.setLanguage(lang);
+      const tree = parserInstance.parse(content);
 
-      const chunks = await this.extractChunks(tree.rootNode, filePath, content, language);
-      parser.delete();
+      const chunks = this.extractChunks(tree.rootNode, filePath, content, language);
       tree.delete();
 
       if (chunks.length === 0) {
@@ -123,33 +157,49 @@ export class ASTChunker implements Chunker {
     }
   }
 
-  private async extractChunks(
+  private extractChunks(
     rootNode: any,
     filePath: string,
     fullContent: string,
     language: string
-  ): Promise<CodeChunk[]> {
+  ): CodeChunk[] {
     const chunks: CodeChunk[] = [];
     const lines = fullContent.split("\n");
 
-    for (let i = 0; i < rootNode.childCount; i++) {
-      const node = rootNode.child(i);
-      if (!node) continue;
+    this.walkNode(rootNode, filePath, lines, language, chunks, undefined);
 
-      const symbolType = this.getSymbolType(node);
-      if (!symbolType) continue;
+    return chunks;
+  }
 
-      const startLine = node.startPosition.row + 1;
-      const endLine = node.endPosition.row + 1;
-      const nodeLines = lines.slice(startLine - 1, endLine);
-      const content = nodeLines.join("\n");
+  private walkNode(
+    node: any,
+    filePath: string,
+    lines: string[],
+    language: string,
+    chunks: CodeChunk[],
+    parentName: string | undefined
+  ): void {
+    for (let i = 0; i < node.childCount; i++) {
+      const child = node.child(i);
+      if (!child) continue;
 
-      // If node is too large, split it
+      const symbolType = this.getSymbolType(child);
+      if (!symbolType || symbolType === "other") {
+        // For "other" (exports, imports), still try to extract nested declarations
+        if (child.childCount > 0) {
+          this.walkNode(child, filePath, lines, language, chunks, parentName);
+        }
+        continue;
+      }
+
+      const startLine = child.startPosition.row + 1;
+      const endLine = child.endPosition.row + 1;
+      const symbolName = this.getSymbolName(child);
+
       if (endLine - startLine + 1 > this.maxChunkLines) {
-        // Still create a header chunk for the symbol
+        // Create header chunk for the symbol signature
         const headerEnd = Math.min(startLine + 5, endLine);
         const headerContent = lines.slice(startLine - 1, headerEnd).join("\n");
-        const symbolName = this.getSymbolName(node);
 
         chunks.push({
           id: hashString(`${filePath}:${startLine}:${headerEnd}`),
@@ -159,25 +209,15 @@ export class ASTChunker implements Chunker {
           content: headerContent,
           symbolName,
           symbolType,
+          parentSymbol: parentName,
           language,
           summary: this.buildSummary(filePath, symbolName, symbolType, headerContent, language, startLine, headerEnd),
         });
 
-        // Split the rest with the line chunker
-        const subChunker = new LineChunker(this.maxChunkLines, 10);
-        const remainingContent = lines.slice(headerEnd, endLine).join("\n");
-        const subChunks = await subChunker.chunk(filePath, remainingContent, language);
-
-        // Adjust line numbers for sub-chunks
-        for (const sub of subChunks) {
-          sub.startLine += headerEnd;
-          sub.endLine += headerEnd;
-          sub.parentSymbol = symbolName;
-          sub.id = hashString(`${filePath}:${sub.startLine}:${sub.endLine}`);
-          chunks.push(sub);
-        }
+        // Recurse into children for nested symbols (methods inside classes)
+        this.walkNode(child, filePath, lines, language, chunks, symbolName);
       } else {
-        const symbolName = this.getSymbolName(node);
+        const content = lines.slice(startLine - 1, endLine).join("\n");
         chunks.push({
           id: hashString(`${filePath}:${startLine}:${endLine}`),
           filePath,
@@ -186,17 +226,20 @@ export class ASTChunker implements Chunker {
           content,
           symbolName,
           symbolType,
+          parentSymbol: parentName,
           language,
           summary: this.buildSummary(filePath, symbolName, symbolType, content, language, startLine, endLine),
         });
+
+        // Also recurse for nested symbols (e.g. methods inside class)
+        if (child.childCount > 0 && (symbolType === "class" || symbolType === "module")) {
+          this.walkNode(child, filePath, lines, language, chunks, symbolName);
+        }
       }
     }
-
-    return chunks;
   }
 
   private getSymbolType(node: any): SymbolType | null {
-    // Direct match
     if (SYMBOL_NODE_TYPES[node.type]) {
       return SYMBOL_NODE_TYPES[node.type];
     }
@@ -216,7 +259,7 @@ export class ASTChunker implements Chunker {
   }
 
   private getSymbolName(node: any): string | undefined {
-    // Try to find the name child
+    // Try direct name field
     const nameNode =
       node.childForFieldName?.("name") ||
       node.childForFieldName?.("declarator");
@@ -226,12 +269,32 @@ export class ASTChunker implements Chunker {
     }
 
     // For export statements, look into the declaration
-    if (node.type === "export_statement") {
+    if (node.type === "export_statement" || node.type === "export_default_declaration") {
       for (let i = 0; i < node.childCount; i++) {
         const child = node.child(i);
         if (child) {
           const childName = child.childForFieldName?.("name");
           if (childName) return childName.text;
+        }
+      }
+    }
+
+    // For decorated definitions (Python @decorator), look at the inner definition
+    if (node.type === "decorated_definition") {
+      const definition = node.childForFieldName?.("definition");
+      if (definition) {
+        const defName = definition.childForFieldName?.("name");
+        if (defName) return defName.text;
+      }
+    }
+
+    // For variable/lexical declarations, try first declarator
+    if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        if (child?.type === "variable_declarator") {
+          const varName = child.childForFieldName?.("name");
+          if (varName) return varName.text;
         }
       }
     }
@@ -252,7 +315,6 @@ export class ASTChunker implements Chunker {
     if (symbolName) parts.push(`"${symbolName}"`);
     parts.push(`in ${filePath} (lines ${startLine}-${endLine})`);
 
-    // Add first meaningful line of content
     const firstLine = content
       .split("\n")
       .find((l) => l.trim().length > 0)

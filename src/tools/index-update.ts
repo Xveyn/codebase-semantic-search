@@ -4,6 +4,7 @@ import { createEmbeddingProvider } from "../embedding/factory.js";
 import { ASTChunker } from "../chunking/ast-chunker.js";
 import { VectorDB } from "../db/connection.js";
 import { Indexer } from "../indexing/indexer.js";
+import { invalidateProjectContext } from "../context.js";
 import { normalizeProjectPath } from "../utils/paths.js";
 import { logger } from "../utils/logger.js";
 
@@ -13,7 +14,6 @@ export async function handleIndexUpdate(input: IndexUpdateInput): Promise<string
   try {
     const config = await loadProjectConfig(projectPath);
 
-    // Load existing metadata to match provider
     const tempDb = new VectorDB(projectPath, 0);
     await tempDb.connect();
     const metadata = await tempDb.loadMetadata();
@@ -36,6 +36,9 @@ export async function handleIndexUpdate(input: IndexUpdateInput): Promise<string
     const result = await indexer.incrementalUpdate();
 
     await db.close();
+
+    // Invalidate cached context so next search picks up new data
+    await invalidateProjectContext(projectPath);
 
     if (result.filesAdded === 0 && result.filesModified === 0 && result.filesDeleted === 0) {
       return "Index is up to date. No changes detected.";

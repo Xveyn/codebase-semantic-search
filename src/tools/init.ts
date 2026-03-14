@@ -4,6 +4,7 @@ import { createEmbeddingProvider } from "../embedding/factory.js";
 import { ASTChunker } from "../chunking/ast-chunker.js";
 import { VectorDB } from "../db/connection.js";
 import { Indexer } from "../indexing/indexer.js";
+import { invalidateProjectContext } from "../context.js";
 import { normalizeProjectPath } from "../utils/paths.js";
 import { logger } from "../utils/logger.js";
 
@@ -12,10 +13,11 @@ export async function handleInit(input: InitInput): Promise<string> {
   logger.info("Initializing index", { projectPath });
 
   try {
-    // Load config
+    // Invalidate any cached context for this project
+    await invalidateProjectContext(projectPath);
+
     const config = await loadProjectConfig(projectPath);
 
-    // Apply overrides from input
     if (input.embeddingProvider) {
       config.embedding.provider = input.embeddingProvider;
     }
@@ -29,17 +31,12 @@ export async function handleInit(input: InitInput): Promise<string> {
       config.files.exclude = [...config.files.exclude, ...input.excludePatterns];
     }
 
-    // Create embedding provider
     const embedder = await createEmbeddingProvider(config.embedding);
-
-    // Create chunker
     const chunker = new ASTChunker(config.chunking.maxChunkLines, config.chunking.overlapLines);
 
-    // Create DB
     const db = new VectorDB(projectPath, embedder.dimensions);
     await db.connect();
 
-    // Run full index
     const indexer = new Indexer(projectPath, db, embedder, chunker, config);
     const result = await indexer.fullIndex();
 

@@ -3,6 +3,7 @@ import type { EmbeddingConfig } from "../config/schema.js";
 import { OllamaEmbeddingProvider } from "./ollama.js";
 import { TransformersEmbeddingProvider } from "./transformers.js";
 import { OpenAIEmbeddingProvider } from "./openai.js";
+import { CachedEmbeddingProvider } from "./cache.js";
 import { logger } from "../utils/logger.js";
 
 export async function createEmbeddingProvider(config: EmbeddingConfig): Promise<EmbeddingProvider> {
@@ -44,5 +45,6 @@ export async function createEmbeddingProvider(config: EmbeddingConfig): Promise<
 async function initProvider(provider: EmbeddingProvider): Promise<EmbeddingProvider> {
   await provider.initialize();
   logger.info(`Embedding provider ready: ${provider.name} (${provider.dimensions}d)`);
-  return provider;
+  // Wrap in cache for query embedding reuse
+  return new CachedEmbeddingProvider(provider);
 }

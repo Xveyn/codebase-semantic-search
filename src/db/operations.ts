@@ -71,7 +71,7 @@ export async function searchFiles(
 }
 
 export async function deleteByFilePath(table: Table, filePath: string): Promise<void> {
-  await table.delete(`filePath = '${filePath.replace(/'/g, "''")}'`);
+  await table.delete(`"filePath" = '${filePath.replace(/'/g, "''")}'`);
 }
 
 export async function deleteByFilePaths(table: Table, filePaths: string[]): Promise<void> {

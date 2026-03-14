@@ -7,3 +7,5 @@ build/
 *.log
 .vectordb/
 *.tsbuildinfo
+reindex_log.txt
+*.log
