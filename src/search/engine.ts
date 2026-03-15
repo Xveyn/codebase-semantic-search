@@ -1,6 +1,6 @@
 import type { EmbeddingProvider } from "../embedding/provider.js";
 import { VectorDB } from "../db/connection.js";
-import { searchChunks, searchFiles as searchFilesOp } from "../db/operations.js";
+import { searchChunks, searchFiles as searchFilesOp, queryChunksByFilter } from "../db/operations.js";
 import type { ChunkRecord, FileRecord } from "../db/schema.js";
 import { bm25Score, isIdentifierQuery } from "./bm25.js";
 import { escapeSqlString, sanitizeLanguage, sanitizeFilePattern, sanitizeSymbolType } from "../utils/sanitize.js";
@@ -164,52 +164,175 @@ export class SearchEngine {
     limit: number,
     symbolTypes?: string[]
   ): Promise<SymbolSearchResult[]> {
-    const queryVector = await this.embedder.embed(query);
     const table = await this.db.getOrCreateChunksTable();
 
-    const conditions: string[] = [`"symbolName" != ''`, `id != '__placeholder__'`];
+    // Build shared type filter conditions
+    const typeConditions: string[] = [];
     if (symbolTypes && symbolTypes.length > 0) {
       const safeTypes = symbolTypes
         .map((t) => sanitizeSymbolType(t))
         .filter((t): t is string => t !== null);
       if (safeTypes.length > 0) {
         const typeList = safeTypes.map((t) => `'${t}'`).join(", ");
-        conditions.push(`"symbolType" IN (${typeList})`);
+        typeConditions.push(`"symbolType" IN (${typeList})`);
       }
     }
-    const filter = conditions.join(" AND ");
 
+    const isIdent = isIdentifierQuery(query);
+    const seenIds = new Set<string>();
+
+    type SymbolCandidate = {
+      id: string;
+      filePath: string;
+      startLine: number;
+      endLine: number;
+      symbolName: string;
+      symbolType: string;
+      content: string;
+      language: string;
+      vectorScore: number;
+      searchText: string;
+      exactBoost: number;
+    };
+
+    const allCandidates: SymbolCandidate[] = [];
+
+    // --- Phase 1: Exact and LIKE symbolName matching for identifier queries ---
+    if (isIdent) {
+      const safeQuery = escapeSqlString(query);
+
+      // Exact match on symbolName
+      const exactConditions = [
+        `"symbolName" = '${safeQuery}'`,
+        `id != '__placeholder__'`,
+        ...typeConditions,
+      ];
+      const exactResults = await queryChunksByFilter(
+        table,
+        exactConditions.join(" AND "),
+        limit
+      );
+
+      for (const chunk of exactResults) {
+        if (!seenIds.has(chunk.id)) {
+          seenIds.add(chunk.id);
+          allCandidates.push({
+            id: chunk.id,
+            filePath: chunk.filePath,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            symbolName: chunk.symbolName,
+            symbolType: chunk.symbolType,
+            content: chunk.content,
+            language: chunk.language,
+            vectorScore: 0.5, // neutral vector score for non-vector results
+            searchText: `${chunk.symbolName} ${chunk.symbolType} ${chunk.content}`,
+            exactBoost: 0.5, // strong boost for exact match
+          });
+        }
+      }
+
+      // LIKE match on symbolName (contains query as substring)
+      const likeConditions = [
+        `"symbolName" LIKE '%${safeQuery}%'`,
+        `"symbolName" != '${safeQuery}'`, // exclude already-found exact matches
+        `id != '__placeholder__'`,
+        ...typeConditions,
+      ];
+      const likeResults = await queryChunksByFilter(
+        table,
+        likeConditions.join(" AND "),
+        limit
+      );
+
+      for (const chunk of likeResults) {
+        if (!seenIds.has(chunk.id)) {
+          seenIds.add(chunk.id);
+          allCandidates.push({
+            id: chunk.id,
+            filePath: chunk.filePath,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            symbolName: chunk.symbolName,
+            symbolType: chunk.symbolType,
+            content: chunk.content,
+            language: chunk.language,
+            vectorScore: 0.5,
+            searchText: `${chunk.symbolName} ${chunk.symbolType} ${chunk.content}`,
+            exactBoost: 0.25, // moderate boost for partial match
+          });
+        }
+      }
+    }
+
+    // --- Phase 2: Vector search (always) ---
+    const vectorConditions = [`"symbolName" != ''`, `id != '__placeholder__'`, ...typeConditions];
+    const vectorFilter = vectorConditions.join(" AND ");
     const fetchLimit = limit * RERANK_MULTIPLIER;
-    const results = await searchChunks(table, queryVector, fetchLimit, filter);
 
-    const candidates = results.map((r) => {
+    const queryVector = await this.embedder.embed(query);
+    const vectorResults = await searchChunks(table, queryVector, fetchLimit, vectorFilter);
+
+    for (const r of vectorResults) {
       const chunk = r.record as ChunkRecord;
-      return {
-        filePath: chunk.filePath,
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        symbolName: chunk.symbolName,
-        symbolType: chunk.symbolType,
-        content: chunk.content,
-        language: chunk.language,
-        vectorScore: 1 - (r.distance || 0),
-        // For symbols, the symbol name is the most important searchable text
-        searchText: `${chunk.symbolName} ${chunk.symbolType} ${chunk.content}`,
-      };
+      if (!seenIds.has(chunk.id)) {
+        seenIds.add(chunk.id);
+        allCandidates.push({
+          id: chunk.id,
+          filePath: chunk.filePath,
+          startLine: chunk.startLine,
+          endLine: chunk.endLine,
+          symbolName: chunk.symbolName,
+          symbolType: chunk.symbolType,
+          content: chunk.content,
+          language: chunk.language,
+          vectorScore: 1 - (r.distance || 0),
+          searchText: `${chunk.symbolName} ${chunk.symbolType} ${chunk.content}`,
+          exactBoost: 0,
+        });
+      }
+    }
+
+    // --- Phase 3: Hybrid rank with exact match boost ---
+    if (allCandidates.length === 0) return [];
+
+    const bm25Scores = bm25Score(
+      query,
+      allCandidates.map((c) => c.searchText)
+    );
+
+    const maxBm25 = Math.max(...bm25Scores, 0.001);
+    const normalizedBm25 = bm25Scores.map((s) => s / maxBm25);
+
+    const vectorWeight = isIdent ? 0.3 : 0.7;
+    const bm25Weight = isIdent ? 0.7 : 0.3;
+
+    const scored = allCandidates.map((c, i) => ({
+      ...c,
+      score: vectorWeight * c.vectorScore + bm25Weight * normalizedBm25[i] + c.exactBoost,
+    }));
+
+    logger.debug("Symbol search candidates", {
+      isIdentifier: isIdent,
+      exactMatches: allCandidates.filter((c) => c.exactBoost === 0.5).length,
+      likeMatches: allCandidates.filter((c) => c.exactBoost === 0.25).length,
+      vectorMatches: allCandidates.filter((c) => c.exactBoost === 0).length,
     });
 
-    const ranked = this.hybridRank(query, candidates, limit);
-
-    return ranked.map((c) => ({
-      filePath: c.filePath,
-      startLine: c.startLine,
-      endLine: c.endLine,
-      symbolName: c.symbolName,
-      symbolType: c.symbolType,
-      content: c.content,
-      language: c.language,
-      score: c.score,
-    }));
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .filter((r) => r.score >= MIN_SCORE_THRESHOLD)
+      .slice(0, limit)
+      .map((c) => ({
+        filePath: c.filePath,
+        startLine: c.startLine,
+        endLine: c.endLine,
+        symbolName: c.symbolName,
+        symbolType: c.symbolType,
+        content: c.content,
+        language: c.language,
+        score: c.score,
+      }));
   }
 
   /**

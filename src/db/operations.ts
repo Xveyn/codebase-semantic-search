@@ -71,6 +71,33 @@ export async function searchFiles(
   }));
 }
 
+/**
+ * Query chunks by SQL filter only (no vector search).
+ * Used for exact/LIKE symbol name matching.
+ */
+export async function queryChunksByFilter(
+  table: Table,
+  filter: string,
+  limit: number
+): Promise<ChunkRecord[]> {
+  const results = await table.query().where(filter).limit(limit).toArray();
+  return results.map((row: any) => ({
+    id: row.id,
+    vector: row.vector,
+    filePath: row.filePath,
+    startLine: row.startLine,
+    endLine: row.endLine,
+    content: row.content,
+    symbolName: row.symbolName,
+    symbolType: row.symbolType,
+    language: row.language,
+    parentSymbol: row.parentSymbol,
+    summary: row.summary,
+    fileHash: row.fileHash,
+    indexedAt: row.indexedAt,
+  } as ChunkRecord));
+}
+
 export async function deleteByFilePath(table: Table, filePath: string): Promise<void> {
   await table.delete(`"filePath" = '${escapeSqlString(filePath)}'`);
 }
