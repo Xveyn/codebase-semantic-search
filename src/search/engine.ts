@@ -263,10 +263,49 @@ export class SearchEngine {
           });
         }
       }
+
+      // Content-based fallback: find identifier in code even when symbolName is empty
+      // Catches cases where tree-sitter failed and LineChunker was used
+      if (allCandidates.length === 0) {
+        const contentConditions = [
+          `content LIKE '%${safeQuery}%'`,
+          `id != '__placeholder__'`,
+          ...typeConditions,
+        ];
+        const contentResults = await queryChunksByFilter(
+          table,
+          contentConditions.join(" AND "),
+          limit
+        );
+
+        for (const chunk of contentResults) {
+          if (!seenIds.has(chunk.id)) {
+            seenIds.add(chunk.id);
+            allCandidates.push({
+              id: chunk.id,
+              filePath: chunk.filePath,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              symbolName: chunk.symbolName || query, // use query as fallback name
+              symbolType: chunk.symbolType || "unknown",
+              content: chunk.content,
+              language: chunk.language,
+              vectorScore: 0.5,
+              searchText: `${query} ${chunk.content}`,
+              exactBoost: 0.3, // content match boost
+            });
+          }
+        }
+      }
     }
 
     // --- Phase 2: Vector search (always) ---
-    const vectorConditions = [`"symbolName" != ''`, `id != '__placeholder__'`, ...typeConditions];
+    // For identifier queries, also search chunks without symbolName (LineChunker fallback)
+    const vectorConditions = [
+      ...(isIdent ? [] : [`"symbolName" != ''`]),
+      `id != '__placeholder__'`,
+      ...typeConditions,
+    ];
     const vectorFilter = vectorConditions.join(" AND ");
     const fetchLimit = limit * RERANK_MULTIPLIER;
 

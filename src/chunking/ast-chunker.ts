@@ -145,6 +145,11 @@ export class ASTChunker implements Chunker {
       tree.delete();
 
       if (chunks.length === 0) {
+        logger.debug("AST produced 0 chunks, falling back to line chunker", {
+          file: filePath,
+          rootNodeType: tree.rootNode?.type,
+          rootChildCount: tree.rootNode?.childCount,
+        });
         return this.lineChunker.chunk(filePath, content, language);
       }
       return chunks;
