@@ -11,6 +11,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   issue/PR templates.
 - GitHub Actions CI (build + test on Node 18/20/22).
 - Dependabot configuration for npm and GitHub Actions.
+- npm packaging: scoped package `@xveyn/codebase-semantic-search` with a
+  `codebase-semantic-search` bin, a `files` whitelist, and a release workflow
+  publishing to GitHub Packages. See `RELEASING.md`.
 
 ### Changed
 - Bumped dependencies to resolve security advisories (`npm audit fix`).
