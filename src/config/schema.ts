@@ -43,10 +43,14 @@ export const SearchConfigSchema = z.object({
 });
 
 export const ProjectConfigSchema = z.object({
-  embedding: EmbeddingConfigSchema.default({}),
-  files: FilesConfigSchema.default({}),
-  chunking: ChunkingConfigSchema.default({}),
-  search: SearchConfigSchema.default({}),
+  // zod 4: .prefault() parses the given value through the schema (applying each
+  // field's own default), whereas .default() now short-circuits and expects the
+  // full output object. We want an omitted section to become {} and then be
+  // filled in by the inner field defaults.
+  embedding: EmbeddingConfigSchema.prefault({}),
+  files: FilesConfigSchema.prefault({}),
+  chunking: ChunkingConfigSchema.prefault({}),
+  search: SearchConfigSchema.prefault({}),
 });
 
 export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
