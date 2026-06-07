@@ -39,7 +39,7 @@
     "@lancedb/lancedb": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "apache-arrow": "^18.1.0",
-    "chokidar": "^4.0.3",
+    "chokidar": "^5.0.0",
     "glob": "^11.0.1",
     "simple-git": "^3.27.0",
     "tree-sitter-wasms": "^0.1.13",
