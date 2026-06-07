@@ -42,8 +42,26 @@ Already included as dependency. Used automatically if Ollama is not running.
 
 ### 3. Register with Claude Code
 
+After a local build:
+
 ```bash
 claude mcp add codebase-search -- node "/path/to/codebase-semantic-search/build/index.js"
+```
+
+**Or install from GitHub Packages (private package):**
+
+Add an `.npmrc` (see [RELEASING.md](RELEASING.md) for details):
+
+```
+@xveyn:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then:
+
+```bash
+npm install -g @xveyn/codebase-semantic-search
+claude mcp add codebase-search -- codebase-semantic-search
 ```
 
 ### 4. Use
