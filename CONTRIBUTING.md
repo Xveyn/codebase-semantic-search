@@ -12,7 +12,8 @@ npm install
 npm run build
 ```
 
-Requires **Node.js 18 or newer**.
+Requires **Node.js 18 or newer** to run the server. The test tooling (vitest 4)
+requires **Node.js 20 or newer**, which is what CI uses.
 
 ### Optional: Ollama for fast embeddings
 
