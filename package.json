@@ -59,7 +59,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@lancedb/lancedb": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "apache-arrow": "^18.1.0",
+    "apache-arrow": "^21.1.0",
     "chokidar": "^5.0.0",
     "glob": "^13.0.6",
     "simple-git": "^3.27.0",
