@@ -17,6 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Upgraded `vitest` to v4 (test tooling now requires Node 20+).
 - Upgraded `zod` to v4. Object-level config defaults use `.prefault({})`
   (zod 4's replacement for `.default({})` when relying on inner field defaults).
+- Upgraded `@huggingface/transformers` to v4, `glob` to v13, `chokidar` to v5.
+  No code changes required; transformers v4 verified via a runtime smoke test.
 - Bumped `actions/checkout` and `actions/setup-node` to v6 in CI.
 
 ## [0.1.0] - 2026-03
