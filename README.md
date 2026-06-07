@@ -1,5 +1,9 @@
 # codebase-semantic-search
 
+[![CI](https://github.com/Xveyn/codebase-semantic-search/actions/workflows/ci.yml/badge.svg)](https://github.com/Xveyn/codebase-semantic-search/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+
 MCP Server for **vector-based semantic code search** in [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Index your entire codebase locally and search code, files, and symbols using natural language — no exact keywords needed.
 
 Built with [LanceDB](https://lancedb.com/) (embedded vector database) and [Ollama](https://ollama.com/) / transformers.js for embeddings. Fully local, fully offline.
@@ -136,6 +140,17 @@ Optional `.vectordb.json` in your project root:
 
 TypeScript, JavaScript, Python, Rust, Go, Java, C, C++, C#, Ruby, PHP, Swift, Kotlin, Scala, HTML, CSS, JSON, Markdown, Shell, Lua, and more (30+ extensions).
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set
+up a development environment and open a pull request. Please also review our
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+For security policy and how to report vulnerabilities, see
+[SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT
+[MIT](LICENSE) © Xveyn

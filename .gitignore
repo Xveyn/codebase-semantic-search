@@ -1,5 +1,8 @@
 node_modules/
 build/
+
+# Local Claude Code settings (machine-specific)
+.claude/settings.local.json
 *.js.map
 *.d.ts
 !src/**/*.d.ts

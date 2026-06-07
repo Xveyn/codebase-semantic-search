@@ -12,9 +12,17 @@
     "code-search"
   ],
   "license": "MIT",
+  "author": "Xveyn",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Xveyn/codebase-semantic-search"
+    "url": "git+https://github.com/Xveyn/codebase-semantic-search.git"
+  },
+  "homepage": "https://github.com/Xveyn/codebase-semantic-search#readme",
+  "bugs": {
+    "url": "https://github.com/Xveyn/codebase-semantic-search/issues"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "type": "module",
   "main": "build/index.js",
@@ -41,6 +49,6 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "typescript": "^5.8.2",
-    "vitest": "^3.0.9"
+    "vitest": "^4.1.8"
   }
 }
