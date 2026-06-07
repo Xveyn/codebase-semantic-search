@@ -14,7 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - Bumped dependencies to resolve security advisories (`npm audit fix`).
-- Upgraded `vitest` to v4.
+- Upgraded `vitest` to v4 (test tooling now requires Node 20+).
+- Upgraded `zod` to v4. Object-level config defaults use `.prefault({})`
+  (zod 4's replacement for `.default({})` when relying on inner field defaults).
+- Bumped `actions/checkout` and `actions/setup-node` to v6 in CI.
 
 ## [0.1.0] - 2026-03
 
