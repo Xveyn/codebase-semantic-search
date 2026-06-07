@@ -1,5 +1,5 @@
 {
-  "name": "codebase-semantic-search",
+  "name": "@xveyn/codebase-semantic-search",
   "version": "0.1.0",
   "description": "MCP Server for vector-based semantic code search in Claude Code. Index your codebase locally with LanceDB and search code, files, and symbols using natural language.",
   "keywords": [
@@ -24,14 +24,35 @@
   "engines": {
     "node": ">=18"
   },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "type": "module",
   "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "bin": {
+    "codebase-semantic-search": "build/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "default": "./build/index.js"
+    }
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
