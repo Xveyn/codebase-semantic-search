@@ -27,6 +27,11 @@ export function getMetadataPath(projectPath: string): string {
   return join(getProjectDbPath(projectPath), "metadata.json");
 }
 
+/** Held by the server process that is writing the index; see index-lock.ts. */
+export function getIndexLockPath(projectPath: string): string {
+  return join(getProjectDbPath(projectPath), "index.lock");
+}
+
 export async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }

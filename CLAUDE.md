@@ -43,7 +43,7 @@ npm run test:coverage                        # mit Coverage, wie in der CI auf N
 - LanceDB-Abfragen liefern ohne `limit` nur **10 Zeilen** — `table.query()` genauso wie die Vektorsuche. Alle Zeilen lesen: `queryAllRows` in `src/db/operations.ts` (Limit = Anzahl der Treffer)
 - Placeholder-Records (`__placeholder__`) in leeren Tabellen beim Lesen filtern
 - `fullIndex` schreibt mit `overwriteChunksTable` / `overwriteFilesTable`, nie über `getOrCreate…Table(data)`: die ignorieren die Daten, wenn die Tabelle bereits existiert
-- **Nebenläufigkeit:** Parallele Subagents teilen sich einen Serverprozess. Schreibende Tools laufen unter `withProjectWriteLock`, Suchen warten mit `waitForProjectWrites`, Schreibvorgänge verwerfen danach den Projekt-Kontext. Das gilt nur innerhalb eines Prozesses — mehrere Server-Prozesse sind nicht koordiniert (#46)
+- **Nebenläufigkeit:** Parallele Subagents teilen sich einen Serverprozess. Schreibende Tools laufen unter `withProjectWriteLock`, Suchen warten mit `waitForProjectWrites`, Schreibvorgänge verwerfen danach den Projekt-Kontext. Zwischen Prozessen (jede Claude-Code-Session hat ihren eigenen Server) koordiniert die Lock-Datei `index.lock` im Indexverzeichnis (`src/utils/index-lock.ts`): ein zweiter Schreiber bricht sofort mit `IndexLockedError` ab, ein Lock toter Prozesse wird übernommen. Lesepfade legen keine Tabellen an (`openChunksTable` / `openFilesTable`), nur Schreibpfade nutzen `getOrCreate…Table`
 - **Server-Instructions und Tool-Beschreibungen sind die Nutzungsregeln für Agents** — Explore- und Plan-Subagents bekommen keine CLAUDE.md. Ändert sich das Verhalten eines Tools, Beschreibung mitziehen (`test/unit/server.test.ts`)
 
 ## Tests / CI

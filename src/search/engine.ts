@@ -67,7 +67,7 @@ export class SearchEngine {
     filePattern?: string
   ): Promise<CodeSearchResult[]> {
     const queryVector = await this.embedder.embed(query);
-    const table = await this.db.getOrCreateChunksTable();
+    const table = await this.db.openChunksTable();
 
     const conditions: string[] = [];
     if (language) {
@@ -121,7 +121,7 @@ export class SearchEngine {
 
   async searchFilesByQuery(query: string, limit: number): Promise<FileSearchResult[]> {
     const queryVector = await this.embedder.embed(query);
-    const table = await this.db.getOrCreateFilesTable();
+    const table = await this.db.openFilesTable();
 
     const results = await searchFilesOp(table, queryVector, limit * RERANK_MULTIPLIER);
 
@@ -175,7 +175,7 @@ export class SearchEngine {
     limit: number,
     symbolTypes?: string[]
   ): Promise<SymbolSearchResult[]> {
-    const table = await this.db.getOrCreateChunksTable();
+    const table = await this.db.openChunksTable();
 
     // Build shared type filter conditions
     const typeConditions: string[] = [];

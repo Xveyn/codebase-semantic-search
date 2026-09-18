@@ -32,6 +32,13 @@ describe("MCP server metadata", () => {
     expect(instructions).toMatch(/absolute/i);
   });
 
+  it("tells agents that searches keep working while another session writes the index", () => {
+    const instructions = client.getInstructions() ?? "";
+
+    expect(instructions).toMatch(/another (Claude Code )?session/i);
+    expect(instructions).toMatch(/search/i);
+  });
+
   it("registers all seven tools", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "index_status",
