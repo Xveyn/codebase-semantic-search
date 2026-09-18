@@ -28,6 +28,7 @@ const INSTRUCTIONS = [
   "Workflow: check index_status, run init once per project, then use search_code, search_files and search_symbols; run index_update after code changes.",
   "Use it for questions about what code does or where a concept lives when you don't know the exact names. Use grep for exact text or to find every occurrence of a known identifier.",
   "Every tool takes projectPath, the absolute path of the project root.",
+  "Only one server process writes an index at a time: while another Claude Code session runs init, reindex or index_update on the same project, these tools fail. Searches keep working on the previous index meanwhile; retry the write later, don't treat the index as broken.",
 ].join("\n");
 
 export function createServer(): McpServer {

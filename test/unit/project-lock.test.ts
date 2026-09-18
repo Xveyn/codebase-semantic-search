@@ -1,9 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import { rm } from "fs/promises";
 import { withProjectWriteLock, waitForProjectWrites } from "../../src/utils/project-lock.js";
+import { getProjectDbPath } from "../../src/utils/paths.js";
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("withProjectWriteLock", () => {
+  // Each write takes the index lock file, which creates the project's index directory
+  afterAll(async () => {
+    for (const name of ["a", "b", "c", "d", "e", "f"]) {
+      await rm(getProjectDbPath(`/tmp/project-${name}`), { recursive: true, force: true });
+    }
+  });
+
   it("runs writes for the same project one after another", async () => {
     const events: string[] = [];
     const task = (name: string) => async () => {

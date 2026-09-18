@@ -85,6 +85,32 @@ export class VectorDB {
     return this.filesTable;
   }
 
+  /** Opens the chunks table for reading. Unlike getOrCreateChunksTable it never creates one. */
+  async openChunksTable(): Promise<Table> {
+    this.chunksTable ??= await this.openExistingTable("chunks");
+    return this.chunksTable;
+  }
+
+  /** Opens the files table for reading; see openChunksTable. */
+  async openFilesTable(): Promise<Table> {
+    this.filesTable ??= await this.openExistingTable("files");
+    return this.filesTable;
+  }
+
+  /**
+   * Read paths must not create tables: a placeholder table created while another
+   * server process is indexing used to make that index silently empty (#46).
+   */
+  private async openExistingTable(name: "chunks" | "files"): Promise<Table> {
+    const conn = this.getConnection();
+    if (!(await conn.tableNames()).includes(name)) {
+      throw new Error(
+        `The index for ${this.projectPath} is incomplete (table "${name}" is missing). Run 'reindex' to rebuild it.`
+      );
+    }
+    return conn.openTable(name);
+  }
+
   private placeholderChunk(): ChunkRecord {
     return {
       id: "__placeholder__",

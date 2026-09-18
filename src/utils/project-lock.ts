@@ -1,16 +1,20 @@
-import { normalizeProjectPath } from "./paths.js";
+import { getIndexLockPath, normalizeProjectPath } from "./paths.js";
+import { withIndexFileLock } from "./index-lock.js";
 
 /**
  * Per-project queue for index writes (init, reindex, index_update).
  *
  * Parallel subagents share one MCP server process, so these tools can run at the
  * same time: concurrent appends duplicate rows, concurrent deletes fail with
- * LanceDB commit conflicts. This only coordinates calls within one server
- * process; separate processes are not coordinated (#46).
+ * LanceDB commit conflicts. The queue orders calls within this process; each write
+ * then takes the index lock file, which makes other server processes fail fast (#46).
  */
 const pendingWrites = new Map<string, Promise<void>>();
 
-/** Runs `write` after all writes already queued for the project have finished. */
+/**
+ * Runs `write` after all writes already queued for the project have finished.
+ * Throws IndexLockedError if another server process is writing the index.
+ */
 export async function withProjectWriteLock<T>(projectPath: string, write: () => Promise<T>): Promise<T> {
   const key = normalizeProjectPath(projectPath);
   const previous = pendingWrites.get(key) ?? Promise.resolve();
@@ -24,7 +28,7 @@ export async function withProjectWriteLock<T>(projectPath: string, write: () => 
 
   await previous;
   try {
-    return await write();
+    return await withIndexFileLock(getIndexLockPath(key), write);
   } finally {
     release();
     if (pendingWrites.get(key) === tail) {
